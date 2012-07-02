@@ -1,0 +1,109 @@
+#!/bin/bash
+
+DIRECTORY='/iso'
+TMPMNT='/tmp/mnt'
+
+
+if [ -e $TMPMNT ]; then
+	umount $TMPMNT 2>&1 >/dev/null
+	rm -r $TMPMNT 2>&1 >/dev/null
+fi
+
+mkdir $TMPMNT 2>&1 >/dev/null
+
+for file in `find $DIRECTORY/*.iso`; do
+	name="$(echo $file | sed 's/^\/iso\///g')"
+	linux=""
+	initrd=""
+
+	echo -e "Found $name" 1>&2
+
+	if [ "$(echo $name | grep -io 'ubuntu')" = "ubuntu" ]; then
+	    ## Tested Ubuntu releases:
+	    ## 9.10
+	    ## 10.04
+	    ## 10.10
+	    
+		mount -o loop $file $TMPMNT
+		cd $TMPMNT
+		
+		initfile=""
+		linuxfile=""
+		
+		for zfile in `find casper install`; do
+			if [ "$(file $zfile | grep -io 'Linux kernel')" == "Linux kernel" ]; then
+				linuxfile="$zfile"
+			elif [ "$(echo $zfile | grep -io 'initrd')" == "init" ]; then
+				initfile="$zfile"
+			fi
+		done
+		
+		linux="linux (loop)/$linuxfile boot=casper iso-scan/filename=$file noeject noprompt --"
+		initrd="initrd (loop)/$initfile"
+	
+		cd /
+		a=`umount $TMPMNT 2>&1 >/dev/null`
+	elif [ "$(echo $name | grep -io 'debian')" = "debian" ]; then
+	    ## Tested Debian releases:
+	    ## 6.0.0 CD 1
+	    ## Debian Testing Businesscard ISO (02-11-2011)
+	    
+		mount -o loop $file $TMPMNT
+		cd $TMPMNT
+		
+		initfile=""
+		linuxfile=""
+		
+		for zfile in `find install.*`; do
+			if [ "$(file $zfile | grep -io 'Linux kernel')" == "Linux kernel" ]; then
+				linuxfile="$zfile"
+			elif [ "$(echo $zfile | grep -io 'initrd')" == "initrd" ]; then
+				initfile="$zfile"
+			fi
+		done
+		
+		linux="linux (loop)/$linuxfile boot=casper iso-scan/filename=$file root=$file noeject noprompt --"
+		initrd="initrd (loop)/$initfile"
+	
+		cd /
+		a=`umount $TMPMNT 2>&1 >/dev/null`
+	else
+		mount -o loop $file $TMPMNT
+		cd $TMPMNT
+		
+		initfile=""
+		linuxfile=""
+		
+		linux=""
+		initrd="chainloader (loop)"
+		
+		#linux="linux $linuxfile"
+		
+		#if [ "$initfile" != ""]; then
+		#	initrd="initrd $initrd"
+		#fi
+		
+		cd /
+		a=`umount $TMPMNT 2>&1 >/dev/null`
+	fi
+
+
+	if [ "$linux" != "" -o "$initrd" != "" ]; then
+		echo -e "menuentry \"$name\" {"
+		echo -e "\tloopback loop $file"
+		if [ "$linux" != "" ]; then
+			echo -e "\t$linux"
+		fi
+
+		if [ "$initrd" != "" ]; then
+			echo -e "\t$initrd"
+		fi
+
+		echo -e "}"
+	fi
+
+done
+cd /tmp
+
+a=`umount $TMPMNT 2>&1 >/dev/null`
+rm $TMPMNT -r 2>&1 >/dev/null
