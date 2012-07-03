@@ -1,94 +1,82 @@
 #!/bin/bash
 
-DIRECTORY='/iso'
-TMPMNT='/tmp/mnt'
+# install.sh -- installer for grubiso
+# Copyright (C) 2012 Alex Scheel
+# Licensed under the terms of the GNU GPL v3.
 
 
-if [ -e $TMPMNT ]; then
-	umount $TMPMNT 2>&1 >/dev/null
-	rm -r $TMPMNT 2>&1 >/dev/null
+# Check for root
+if [ $(id -u) == 0 ]; then
+    wait
+else
+    echo "Error: Must be root to run this script" 1>&2
+    exit 1
 fi
 
-mkdir $TMPMNT 2>&1 >/dev/null
+# Read isos directory.
+dir=$(grep 'iso' /etc/grubiso.conf | sed 's/^iso: //g')
+tmp='/tmp/mnt'
 
-for file in `find $DIRECTORY/*.iso`; do
-	name="$(echo $file | sed 's/^\/iso\///g')"
+# Check for temporary mount directry.
+if [ -e $tmp ]; then
+	umount $tmp 2>&1 >/dev/null
+else
+    mkdir $tmp 2>&1 >/dev/null
+fi
+
+# Find livecd images.
+for file in `find $dir/*.iso`; do
+	name=$(basename $file)
 	linux=""
 	initrd=""
 
+    
 	echo -e "Found $name" 1>&2
+    
+    # Tested distributions/versions:
+    # Archlinux 2011.08.19
+    # Fedora 17
+    # debian live lxde 6.0.4
+    # linuxmint cinnamon 13
+    # ubuntu 10.10
 
-	if [ "$(echo $name | grep -io 'ubuntu')" = "ubuntu" ]; then
-	    ## Tested Ubuntu releases:
-	    ## 9.10
-	    ## 10.04
-	    ## 10.10
-	    
-		mount -o loop $file $TMPMNT
-		cd $TMPMNT
-		
-		initfile=""
-		linuxfile=""
-		
-		for zfile in `find casper install`; do
-			if [ "$(file $zfile | grep -io 'Linux kernel')" == "Linux kernel" ]; then
-				linuxfile="$zfile"
-			elif [ "$(echo $zfile | grep -io 'initrd')" == "init" ]; then
-				initfile="$zfile"
-			fi
-		done
-		
-		linux="linux (loop)/$linuxfile boot=casper iso-scan/filename=$file noeject noprompt --"
-		initrd="initrd (loop)/$initfile"
+    
+    
+	a=$(mount -o loop $file $tmp 2>&1 1>/dev/null)
+	pushd $tmp 2>&1 >/dev/null
 	
-		cd /
-		a=`umount $TMPMNT 2>&1 >/dev/null`
-	elif [ "$(echo $name | grep -io 'debian')" = "debian" ]; then
-	    ## Tested Debian releases:
-	    ## 6.0.0 CD 1
-	    ## Debian Testing Businesscard ISO (02-11-2011)
-	    
-		mount -o loop $file $TMPMNT
-		cd $TMPMNT
-		
-		initfile=""
-		linuxfile=""
-		
-		for zfile in `find install.*`; do
-			if [ "$(file $zfile | grep -io 'Linux kernel')" == "Linux kernel" ]; then
-				linuxfile="$zfile"
-			elif [ "$(echo $zfile | grep -io 'initrd')" == "initrd" ]; then
-				initfile="$zfile"
-			fi
-		done
-		
-		linux="linux (loop)/$linuxfile boot=casper iso-scan/filename=$file root=$file noeject noprompt --"
-		initrd="initrd (loop)/$initfile"
+	initfile=""
+	linuxfile=""
 	
-		cd /
-		a=`umount $TMPMNT 2>&1 >/dev/null`
-	else
-		mount -o loop $file $TMPMNT
-		cd $TMPMNT
-		
-		initfile=""
-		linuxfile=""
-		
-		linux=""
-		initrd="chainloader (loop)"
-		
-		#linux="linux $linuxfile"
-		
-		#if [ "$initfile" != ""]; then
-		#	initrd="initrd $initrd"
-		#fi
-		
-		cd /
-		a=`umount $TMPMNT 2>&1 >/dev/null`
-	fi
+	test=''
+	if [ -d "$tmp/live" ]; then
+	    test='live'
+    elif [ -d "$tmp/casper" -a -d "$tmp/install" ]; then
+        test='casper install'
+    elif [ -d "$tmp/isolinux" ]; then
+        test='isolinux'
+    fi
+	
+	for zfile in $(find $test); do
+		if [ "$(file $zfile | grep -io 'Linux kernel')" == "Linux kernel" ]; then
+			linuxfile="$zfile"
+		elif [ "$(echo $zfile | grep -io 'initrd')" == "initrd" ]; then
+			initfile="$zfile"
+		fi
+	done
+	
+	if [ "$linuxfile" != '' -a "$initfile" != '' ]; then
+	    linux="linux (loop)/$linuxfile boot=casper iso-scan/filename=$file noeject noprompt --"
+	    initrd="initrd (loop)/$initfile"
+    else
+        wait
+    fi
+    
+    popd 2>&1 >/dev/null
+	a=$(umount $tmp 2>&1 >/dev/null)
 
 
-	if [ "$linux" != "" -o "$initrd" != "" ]; then
+	if [ "$linux" != "" -a "$initrd" != "" ]; then
 		echo -e "menuentry \"$name\" {"
 		echo -e "\tloopback loop $file"
 		if [ "$linux" != "" ]; then
@@ -103,7 +91,6 @@ for file in `find $DIRECTORY/*.iso`; do
 	fi
 
 done
-cd /tmp
 
-a=`umount $TMPMNT 2>&1 >/dev/null`
-rm $TMPMNT -r 2>&1 >/dev/null
+a=$(umount $tmp 2>&1 >/dev/null)
+rm $tmp -r 2>&1 >/dev/null
